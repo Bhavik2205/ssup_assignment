@@ -29,7 +29,7 @@ class CoffeeMachine {
     const beverages = Object.keys(this.recipes);
     const outletCount = this.outlets;
 
-    // Keep track of how many outlets are available
+    // track of how many outlets are available
     let availableOutlets = outletCount;
 
     // Iterate through the beverages and prepare them concurrently based on outlet count
