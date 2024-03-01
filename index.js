@@ -1,6 +1,5 @@
 import fs from 'fs';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
-import { fileURLToPath } from 'url';
 
 class CoffeeMachine {
   constructor(outlets, ingredients, recipes) {
@@ -9,65 +8,55 @@ class CoffeeMachine {
     this.recipes = recipes;
   }
 
-  async prepareBeverages() {
-    const outletCount = this.outlets;
-    const beverages = Object.keys(this.recipes);
-  
-    const workerPromises = [];
-    for (const beverage of beverages) {
-      try {
-        // Check ingredients availability before starting preparation
-        checkIngredientsAvailability(this.recipes[beverage], this.ingredients);
-        const currentModuleFilePath = fileURLToPath(import.meta.url);
-        const worker = new Worker(currentModuleFilePath, {
-          workerData: { beverage, recipe: this.recipes[beverage], ingredients: this.ingredients }
-        });
-  
-        workerPromises.push(new Promise((resolve, reject) => {
-          worker.on('message', message => console.log(message));
-          worker.on('error', reject);
-        }));
-      } catch (error) {
-        console.log(`${beverage} cannot be prepared because ${error.message}`);
+  checkIngredientsAvailability(recipe, ingredients) {
+    for (const ingredient in recipe) {
+      if (!ingredients[ingredient]) {
+        throw new Error(`${ingredient} is not available`);
+      }
+      if (ingredients[ingredient] < recipe[ingredient]) {
+        throw new Error(`item ${ingredient} is not sufficient`);
       }
     }
-  
-    await Promise.all(workerPromises);
   }
-}
 
-function prepareBeverage(beverage, recipe, ingredients) {
-  try {
-    checkIngredientsAvailability(recipe, ingredients);
-    consumeIngredients(recipe, ingredients);
-    return `${beverage} is prepared`;
-  } catch (error) {
-    return `${beverage} cannot be prepared because ${error.message}`;
-  }
-}
-
-function checkIngredientsAvailability(recipe, ingredients) {
-  for (const ingredient in recipe) {
-    if (!ingredients[ingredient]) {
-      throw new Error(`${ingredient} is not available`);
-    }
-    if (ingredients[ingredient] < recipe[ingredient]) {
-      throw new Error(`item ${ingredient} is not sufficient`);
+  consumeIngredients(recipe, ingredients) {
+    for (const ingredient in recipe) {
+      ingredients[ingredient] -= recipe[ingredient];
     }
   }
-}
 
-function consumeIngredients(recipe, ingredients) {
-  for (const ingredient in recipe) {
-    ingredients[ingredient] -= recipe[ingredient];
+  async prepareBeverages() {
+    const beverages = Object.keys(this.recipes);
+    const outletCount = this.outlets;
+
+    // Keep track of how many outlets are available
+    let availableOutlets = outletCount;
+
+    // Iterate through the beverages and prepare them concurrently based on outlet count
+    for (let i = 0; i < beverages.length; i += outletCount) {
+      const batch = beverages.slice(i, i + outletCount);
+
+      // Create promises for each batch
+      const batchPromises = batch.map(beverage => {
+        return new Promise((resolve, reject) => {
+          const recipe = this.recipes[beverage];
+          try {
+            this.checkIngredientsAvailability(recipe, this.ingredients);
+            this.consumeIngredients(recipe, this.ingredients);
+            console.log(`${beverage} is prepared`);
+            resolve();
+          } catch (error) {
+            console.log(`${beverage} cannot be prepared because ${error.message}`);
+            resolve(); // Resolve the promise even if preparation fails
+          }
+        });
+      });
+
+      // Wait for all promises in the batch to complete before moving to the next batch
+      await Promise.all(batchPromises);
+    }
   }
 }
-
-// if (!isMainThread) {
-//   const { beverage, recipe, ingredients } = workerData;
-//   const result = prepareBeverage(beverage, recipe, ingredients);
-//   parentPort.postMessage(result);
-// }
 
 function loadCoffeeMachineData(filePath) {
   try {
@@ -98,8 +87,13 @@ async function main() {
 
 if (isMainThread) {
   main();
-}else {
-    const { beverage, recipe, ingredients } = workerData;
-    const result = prepareBeverage(beverage, recipe, ingredients);
-    parentPort.postMessage(result);
+} else {
+  // Handle beverage preparation in worker thread
+  const { beverage, coffeeMachine } = workerData;
+  try {
+    await coffeeMachine.prepareBeverages();
+    parentPort.postMessage(`${beverage} is prepared`);
+  } catch (error) {
+    parentPort.postMessage(`${beverage} cannot be prepared because ${error.message}`);
+  }
 }
