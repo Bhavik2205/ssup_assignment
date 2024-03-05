@@ -8,16 +8,21 @@ class CoffeeMachine {
     this.recipes = recipes;
   }
 
+  
   checkIngredientsAvailability(recipe, ingredients) {
     for (const ingredient in recipe) {
-      if (!ingredients[ingredient]) {
+      if (!ingredients.hasOwnProperty(ingredient)) {
         throw new Error(`${ingredient} is not available`);
       }
+    }
+  
+    for (const ingredient in recipe) {
       if (ingredients[ingredient] < recipe[ingredient]) {
         throw new Error(`item ${ingredient} is not sufficient`);
       }
     }
   }
+  
 
   consumeIngredients(recipe, ingredients) {
     for (const ingredient in recipe) {
@@ -28,9 +33,6 @@ class CoffeeMachine {
   async prepareBeverages() {
     const beverages = Object.keys(this.recipes);
     const outletCount = this.outlets;
-
-    // track of how many outlets are available
-    let availableOutlets = outletCount;
 
     // Iterate through the beverages and prepare them concurrently based on outlet count
     for (let i = 0; i < beverages.length; i += outletCount) {
@@ -82,18 +84,25 @@ async function main() {
 
   const inputFilePath = args[0];
   const coffeeMachine = loadCoffeeMachineData(inputFilePath);
-  await coffeeMachine.prepareBeverages();
+
+  if (isMainThread) {
+    await coffeeMachine.prepareBeverages();
+  } else {
+    // Handle beverage preparation in worker thread
+    const { beverage } = workerData;
+    try {
+      await coffeeMachine.prepareBeverages();
+      parentPort.postMessage(`${beverage} is prepared`);
+    } catch (error) {
+      parentPort.postMessage(`${beverage} cannot be prepared because ${error.message}`);
+    }
+  }
 }
 
 if (isMainThread) {
   main();
-} else {
-  // Handle beverage preparation in worker thread
-  const { beverage, coffeeMachine } = workerData;
-  try {
-    await coffeeMachine.prepareBeverages();
-    parentPort.postMessage(`${beverage} is prepared`);
-  } catch (error) {
-    parentPort.postMessage(`${beverage} cannot be prepared because ${error.message}`);
-  }
 }
+
+
+
+
